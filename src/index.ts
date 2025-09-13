@@ -216,7 +216,7 @@ export default class Embed {
 
     try {
       // eslint-disable-next-line no-console
-      console.debug('[Embed] render', {
+      console.log('[Embed] render', {
         service: this.data.service,
         templateKeys: Object.keys(templateVars),
         hasMeta: Boolean(this.data.meta),
@@ -301,14 +301,9 @@ export default class Embed {
 
     try {
       // eslint-disable-next-line no-console
-      console.debug('[Embed] onPaste', {
-        service,
-        url,
-        branch: cfg.metaEndpoint ? 'meta' : 'legacy',
-        hasMetaEndpoint: Boolean(cfg.metaEndpoint),
-        hasEmbedUrl: Boolean(embedUrl),
-        remoteId,
-      });
+      console.log('[Embed] поимка URL', { service, url });
+      // eslint-disable-next-line no-console
+      console.log(cfg.metaEndpoint ? '[Embed] поймали новый embed (metaEndpoint)' : '[Embed] поймали старый embed (legacy)');
     } catch (e) { /* noop */ }
 
     // If metaEndpoint is configured, switch to metadata-driven flow
@@ -327,7 +322,7 @@ export default class Embed {
 
       try {
         // eslint-disable-next-line no-console
-        console.debug('[Embed] meta fetch', { service, endpointUrl });
+        console.log('[Embed] meta fetch', { service, endpointUrl });
       } catch (e) { /* noop */ }
 
       this.fetchJson(endpointUrl)
@@ -347,7 +342,7 @@ export default class Embed {
 
           try {
             // eslint-disable-next-line no-console
-            console.debug('[Embed] meta response', {
+            console.log('[Embed] meta response', {
               service,
               keys: Object.keys(json as Record<string, unknown>),
               picked: pickedMeta,
@@ -366,7 +361,7 @@ export default class Embed {
         .catch((err) => {
           try {
             // eslint-disable-next-line no-console
-            console.warn('[Embed] meta fetch failed', { service, endpointUrl, err });
+            console.log('[Embed] meta fetch failed', { service, endpointUrl, err });
           } catch (e) { /* noop */ }
           // Silently ignore; fallback rendering already in place
         });
@@ -379,7 +374,9 @@ export default class Embed {
 
     try {
       // eslint-disable-next-line no-console
-      console.debug('[Embed] legacy build', { service, url, remoteId, embedUrl, embed });
+      console.log('[Embed] поймали старый embed (legacy)', { service, url });
+      // eslint-disable-next-line no-console
+      console.log('[Embed] legacy build', { service, url, remoteId, embedUrl, embed });
     } catch (e) { /* noop */ }
 
     this.data = {

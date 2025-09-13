@@ -20,6 +20,8 @@ export interface EmbedData {
   height?: number;
   /** Content caption */
   caption?: string;
+  /** Picked oEmbed metadata (flat, top-level keys only) */
+  meta?: Record<string, unknown>;
 }
 
 /**
@@ -115,7 +117,7 @@ export default class Embed {
       throw Error('Embed Tool data should be object');
     }
 
-    const { service, source, embed, width, height, caption = '' } = data;
+    const { service, source, embed, width, height, caption = '', meta } = data;
 
     this._data = {
       service: service || this.data.service,
@@ -124,6 +126,7 @@ export default class Embed {
       width: width || this.data.width,
       height: height || this.data.height,
       caption: caption || this.data.caption || '',
+      meta: meta || this.data.meta,
     };
 
     const oldView = this.element;
@@ -178,7 +181,8 @@ export default class Embed {
       return container;
     }
 
-    const { html } = Embed.services[this.data.service];
+    const service = Embed.services[this.data.service];
+    const { html } = service;
     const container = document.createElement('div');
     const caption = document.createElement('div');
     const template = document.createElement('template');
@@ -193,9 +197,32 @@ export default class Embed {
     caption.dataset.placeholder = this.api.i18n.t('Enter a caption');
     caption.innerHTML = this.data.caption || '';
 
-    template.innerHTML = html;
-    (template.content.firstChild as HTMLElement).setAttribute('src', this.data.embed);
-    (template.content.firstChild as HTMLElement).classList.add(this.CSS.content);
+    // Build template variables for interpolation
+    const remoteId = this.computeRemoteId(this.data.service, this.data.source);
+    const templateVars: Record<string, unknown> = Object.assign({},
+      {
+        remote_id: remoteId,
+        embed: this.data.embed,
+        source: this.data.source,
+        service: this.data.service,
+        width: this.data.width,
+        height: this.data.height,
+        caption: this.data.caption,
+      },
+      this.data.meta || {},
+    );
+
+    const htmlInterpolated = this.interpolate(html, templateVars);
+
+    template.innerHTML = htmlInterpolated;
+    if (template.content.firstChild) {
+      (template.content.firstChild as HTMLElement).classList.add(this.CSS.content);
+      // Backward compatibility: if first node has no src and we have embed URL, set it
+      if ((template.content.firstChild as HTMLElement).getAttribute &&
+        !(template.content.firstChild as HTMLElement).getAttribute('src') && this.data.embed) {
+        (template.content.firstChild as HTMLElement).setAttribute('src', this.data.embed);
+      }
+    }
 
     const embedIsReady = this.embedIsReady(container);
 
@@ -250,9 +277,56 @@ export default class Embed {
   onPaste(event: { detail: PatternPasteEventDetail }) {
     const { key: service, data: url } = event.detail;
 
-    const { regex, embedUrl, width, height, id = (ids) => ids.shift() || '' } = Embed.services[service];
-    const result = regex.exec(url)?.slice(1);
-    const embed = result ? embedUrl.replace(/<%= remote_id %>/g, id(result)) : '';
+    const cfg = Embed.services[service];
+    const { regex, embedUrl, width, height, id = (ids) => ids.shift() || '' } = cfg;
+    const result = regex.exec(url)?.slice(1) || [];
+    const remoteId = id(result);
+
+    // If metaEndpoint is configured, switch to metadata-driven flow
+    if (cfg.metaEndpoint) {
+      // Initial minimal data: no embed URL; keep width/height from config if provided
+      this.data = {
+        service,
+        source: url,
+        embed: '',
+        width,
+        height,
+      };
+
+      // Fire and forget fetch for oEmbed metadata
+      const endpointUrl = this.buildMetaUrl(cfg.metaEndpoint, url, cfg.metaKey);
+
+      this.fetchJson(endpointUrl)
+        .then((json) => {
+          if (!json || typeof json !== 'object') return;
+
+          // Determine fields to pick
+          const fields = Array.isArray(cfg.metaFields) && cfg.metaFields.length
+            ? cfg.metaFields
+            : ['type', 'url', 'provider_name', 'title'];
+
+          const pickedMeta = this.pickFields(json as Record<string, unknown>, fields);
+
+          // Optionally take width/height from response if not set explicitly
+          const newWidth = this.data.width ?? (json as any).width;
+          const newHeight = this.data.height ?? (json as any).height;
+
+          this.data = {
+            ...this.data,
+            meta: pickedMeta,
+            width: newWidth,
+            height: newHeight,
+          };
+        })
+        .catch(() => {
+          // Silently ignore; fallback rendering already in place
+        });
+
+      return;
+    }
+
+    // Legacy flow: build embed URL from embedUrl template
+    const embed = result.length ? (embedUrl || '').replace(/<%=\s*remote_id\s*%>/g, remoteId) : '';
 
     this.data = {
       service,
@@ -287,7 +361,7 @@ export default class Embed {
       })
       .filter(([key, service]) => Embed.checkServiceConfig(service as ServiceConfig))
       .map(([key, service]) => {
-        const { regex, embedUrl, html, height, width, id } = service as ServiceConfig;
+        const { regex, embedUrl, html, height, width, id, metaEndpoint, metaKey, metaFields } = service as ServiceConfig;
 
         return [key, {
           regex,
@@ -296,6 +370,9 @@ export default class Embed {
           height,
           width,
           id,
+          metaEndpoint,
+          metaKey,
+          metaFields,
         } ] as [string, ServiceConfig];
       });
 
@@ -334,11 +411,13 @@ export default class Embed {
    * @returns {boolean}
    */
   static checkServiceConfig(config: ServiceConfig): boolean {
-    const { regex, embedUrl, html, height, width, id } = config;
+    const { regex, embedUrl, html, height, width, id, metaEndpoint } = config;
 
     let isValid = Boolean(regex && regex instanceof RegExp) &&
-      Boolean(embedUrl && typeof embedUrl === 'string') &&
       Boolean(html && typeof html === 'string');
+
+    // Either embedUrl or metaEndpoint must be present
+    isValid = isValid && Boolean((embedUrl && typeof embedUrl === 'string') || (metaEndpoint && typeof metaEndpoint === 'string'));
 
     isValid = isValid && (id !== undefined ? id instanceof Function : true);
     isValid = isValid && (height !== undefined ? Number.isFinite(height) : true);
@@ -387,5 +466,68 @@ export default class Embed {
     }).then(() => {
       observer.disconnect();
     });
+  }
+
+  /**
+   * Compute remote id using service regex and id() mapper from source URL
+   */
+  private computeRemoteId(serviceName: string, source: string): string {
+    const service = Embed.services[serviceName];
+    if (!service || !service.regex) return '';
+    const ids = service.regex.exec(source)?.slice(1) || [];
+    const idFn = service.id || ((arr: string[]) => arr.shift() || '');
+    return idFn(ids);
+  }
+
+  /**
+   * Simple template interpolation for `<%= key %>` placeholders
+   */
+  private interpolate(tpl: string, data: Record<string, unknown>): string {
+    if (!tpl) return '';
+    return tpl.replace(/<%=\s*([a-zA-Z0-9_]+)\s*%>/g, (_m, key) => {
+      const v = data[key];
+      if (v === undefined || v === null) return '';
+      return String(v);
+    });
+  }
+
+  /**
+   * Build meta endpoint URL with url and optional key params
+   */
+  private buildMetaUrl(endpoint: string, sourceUrl: string, key?: string): string {
+    const url = `${endpoint}?url=${encodeURIComponent(sourceUrl)}`;
+    if (key) {
+      return `${url}&key=${encodeURIComponent(key)}`;
+    }
+    return url;
+  }
+
+  /**
+   * Fetch JSON with basic error handling
+   */
+  private async fetchJson(url: string): Promise<unknown> {
+    const controller = new AbortController();
+    const to = setTimeout(() => controller.abort(), 10000);
+    try {
+      const resp = await fetch(url, { headers: { 'Accept': 'application/json' }, signal: controller.signal });
+      clearTimeout(to);
+      if (!resp.ok) throw new Error('Bad status');
+      return await resp.json();
+    } finally {
+      clearTimeout(to);
+    }
+  }
+
+  /**
+   * Pick only allowed top-level fields from a meta object
+   */
+  private pickFields(obj: Record<string, unknown>, fields: string[]): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const k of fields) {
+      if (Object.prototype.hasOwnProperty.call(obj, k)) {
+        out[k] = obj[k];
+      }
+    }
+    return out;
   }
 }

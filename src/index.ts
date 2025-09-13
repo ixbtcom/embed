@@ -214,6 +214,15 @@ export default class Embed {
 
     const htmlInterpolated = this.interpolate(html, templateVars);
 
+    try {
+      // eslint-disable-next-line no-console
+      console.debug('[Embed] render', {
+        service: this.data.service,
+        templateKeys: Object.keys(templateVars),
+        hasMeta: Boolean(this.data.meta),
+      });
+    } catch (e) { /* noop */ }
+
     template.innerHTML = htmlInterpolated;
     if (template.content.firstChild) {
       (template.content.firstChild as HTMLElement).classList.add(this.CSS.content);
@@ -290,6 +299,18 @@ export default class Embed {
     const result = regex.exec(url)?.slice(1) || [];
     const remoteId = id(result);
 
+    try {
+      // eslint-disable-next-line no-console
+      console.debug('[Embed] onPaste', {
+        service,
+        url,
+        branch: cfg.metaEndpoint ? 'meta' : 'legacy',
+        hasMetaEndpoint: Boolean(cfg.metaEndpoint),
+        hasEmbedUrl: Boolean(embedUrl),
+        remoteId,
+      });
+    } catch (e) { /* noop */ }
+
     // If metaEndpoint is configured, switch to metadata-driven flow
     if (cfg.metaEndpoint) {
       // Initial minimal data: no embed URL; keep width/height from config if provided
@@ -303,6 +324,11 @@ export default class Embed {
 
       // Fetch oEmbed metadata for the full source URL (regex only "matches")
       const endpointUrl = this.buildMetaUrl(cfg.metaEndpoint, url, cfg.metaKey);
+
+      try {
+        // eslint-disable-next-line no-console
+        console.debug('[Embed] meta fetch', { service, endpointUrl });
+      } catch (e) { /* noop */ }
 
       this.fetchJson(endpointUrl)
         .then((json) => {
@@ -319,6 +345,17 @@ export default class Embed {
           const newWidth = this.data.width ?? (json as any).width;
           const newHeight = this.data.height ?? (json as any).height;
 
+          try {
+            // eslint-disable-next-line no-console
+            console.debug('[Embed] meta response', {
+              service,
+              keys: Object.keys(json as Record<string, unknown>),
+              picked: pickedMeta,
+              width: newWidth,
+              height: newHeight,
+            });
+          } catch (e) { /* noop */ }
+
           this.data = {
             ...this.data,
             meta: pickedMeta,
@@ -326,7 +363,11 @@ export default class Embed {
             height: newHeight,
           };
         })
-        .catch(() => {
+        .catch((err) => {
+          try {
+            // eslint-disable-next-line no-console
+            console.warn('[Embed] meta fetch failed', { service, endpointUrl, err });
+          } catch (e) { /* noop */ }
           // Silently ignore; fallback rendering already in place
         });
 
@@ -335,6 +376,11 @@ export default class Embed {
 
     // Legacy flow: build embed URL from embedUrl template
     const embed = result.length ? (embedUrl || '').replace(/<%=\s*remote_id\s*%>/g, remoteId) : '';
+
+    try {
+      // eslint-disable-next-line no-console
+      console.debug('[Embed] legacy build', { service, url, remoteId, embedUrl, embed });
+    } catch (e) { /* noop */ }
 
     this.data = {
       service,

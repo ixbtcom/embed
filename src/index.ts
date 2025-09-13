@@ -270,7 +270,15 @@ export default class Embed {
   }
 
   /**
-   * Handle pasted url and return Service object
+   * Handle pasted URL and switch logic based on service configuration.
+   * - Meta-driven branch: if `metaEndpoint` is configured for the service, we
+   *   treat regex as a mere matcher (the entire source URL goes to oEmbed),
+   *   fetch metadata, whitelist top-level fields per `metaFields` and store
+   *   them into `data.meta`. Width/height can be adopted from the response
+   *   if not provided explicitly in config.
+   * - Legacy branch: if `metaEndpoint` is not configured, we extract
+   *   `remote_id` via `regex` + `id()` and build `embed` from `embedUrl`.
+   * In both cases, assigning `this.data` triggers re-render.
    *
    * @param {PasteEvent} event - event with pasted data
    */
@@ -293,7 +301,7 @@ export default class Embed {
         height,
       };
 
-      // Fire and forget fetch for oEmbed metadata
+      // Fetch oEmbed metadata for the full source URL (regex only "matches")
       const endpointUrl = this.buildMetaUrl(cfg.metaEndpoint, url, cfg.metaKey);
 
       this.fetchJson(endpointUrl)
@@ -405,7 +413,11 @@ export default class Embed {
   }
 
   /**
-   * Check if Service config is valid
+   * Check if Service config is valid and determine available branches.
+   * Valid config must contain:
+   *  - regex: RegExp
+   *  - html: string
+   *  - and either embedUrl (legacy branch) or metaEndpoint (meta branch)
    *
    * @param {Service} config - configuration of embed block element
    * @returns {boolean}

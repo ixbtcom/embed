@@ -15,11 +15,14 @@ export interface ServiceConfig {
   width?: number;
   /** Embedded content height */
   height?: number;
-  /** Optional oEmbed endpoint to fetch metadata for the given source URL */
+  /** Optional oEmbed endpoint: if present, new meta-driven branch is used.
+   *  Regex only validates a match; the full source URL will be sent to this endpoint
+   *  as `?url=...` (plus `&key=...` if metaKey is provided). */
   metaEndpoint?: string;
-  /** Optional API key for metaEndpoint; if not provided, &key is not added */
+  /** Optional API key for metaEndpoint; if not provided, `&key` is not added. */
   metaKey?: string;
-  /** Optional whitelist of top-level fields to persist and expose in templates */
+  /** Optional whitelist of top-level fields to persist and expose in templates.
+   *  If not provided, defaults to ['type','url','provider_name','title']. */
   metaFields?: string[];
 }
 

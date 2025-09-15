@@ -453,6 +453,14 @@ export default class Embed {
 
         return result;
       }, {});
+
+    try {
+      // eslint-disable-next-line no-console
+      console.log('[Embed] services prepared', {
+        services: Object.keys(Embed.services || {}),
+        patterns: Object.keys(Embed.patterns || {}),
+      });
+    } catch (e) { /* noop */ }
   }
 
   /**
